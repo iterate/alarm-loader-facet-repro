@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "alarm-loader-facet-repro",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "durable_objects": {
+    "bindings": [{ "name": "PARENT", "class_name": "Parent" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Parent"] }],
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "observability": { "enabled": true }
+}
