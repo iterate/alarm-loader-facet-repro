@@ -64,4 +64,19 @@ npx wrangler deploy -c heavy/wrangler.jsonc
 curl https://alarm-loader-facet-repro-heavy.<subdomain>.workers.dev/    # start; visit again to read
 ```
 
-Failure lines name the step that failed, e.g. `[ctx.props] Unable to deserialize cloned data…`.
+Failure lines name the step that failed, e.g. `[ctx.props] …`; a line with no step prefix means
+the call into the facet rejected before the facet's own code ran.
+
+**Reproduced.** 2026-09-17 20:36:15 UTC, account `376ef7ed81b0573f93524de763666c15`, three of ten
+objects on the same alarm, all 30 calls each, no step prefix (the facet's constructor never ran):
+
+```
+heavy-1   2026-09-17T20:36:15.992Z alarm 15 instance 896c3818: 30/30 FAILED: Unable to deserialize cloned data due to invalid or unsupported version.
+heavy-8   2026-09-17T20:36:16.266Z alarm 15 instance 0380f329: 30/30 FAILED: Unable to deserialize cloned data due to invalid or unsupported version.
+heavy-10  2026-09-17T20:36:15.407Z alarm 15 instance 81e9c1d6: 30/30 FAILED: Unable to deserialize cloned data due to invalid or unsupported version.
+```
+
+The other seven objects were fine on that alarm, and all three were fine on their next one. The
+bare program (top of this page) had been failing with `internal error` twelve minutes earlier and
+was clean at 20:36. Both programs run on the same account; which objects a bad window hits looks
+like a matter of which process they land in.
