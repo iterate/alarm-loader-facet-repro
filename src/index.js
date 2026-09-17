@@ -1,85 +1,69 @@
-// A Durable Object that, woken by its alarm, starts N facets whose class comes from a Worker
-// Loader isolate and calls one method on each — concurrently, the way a real alarm handler fans
-// out. Some of those calls reject with V8's
-//   "Unable to deserialize cloned data due to invalid or unsupported version."
-// The same facets started by a request (GET /control) never do.
+// Expected: every alarm line says "ok". Sometimes: alarms where every facet call fails.
+//
+// Each object is woken by its own alarm every 90 s. Inside alarm() it starts 20 facets whose class
+// comes from a Worker Loader (dynamic worker) and calls ping() on each. Expected: "pong" from all
+// 20, every time. Observed on the platform: alarms where all 20 calls reject, on several alarms in
+// a row. Visit the worker's URL once to start; visit again to read the log.
 import { DurableObject } from "cloudflare:workers";
 
-// The dynamic worker: one Durable Object class with one method. No state, no bindings, no I/O.
-const facetModule = `
+const facetCode = `
 import { DurableObject } from "cloudflare:workers";
 export class Facet extends DurableObject {
   ping() { return "pong"; }
 }`;
 
-export class Parent extends DurableObject {
-  // A new value every time the platform constructs the object, so /results shows whether each
-  // alarm ran as the FIRST act of a fresh object — the condition under which the bug appears.
-  incarnation = crypto.randomUUID().slice(0, 8);
+const FACETS = 20;
+const OBJECTS = 5;
+const EVERY_MS = 90_000; // long enough for the idle object to be evicted between alarms
+const ALARMS = 960; // 24 hours, then it stops
 
-  // Facet `facet-<i>`, started on first use with a class from the loader entry "repro".
+export class Repro extends DurableObject {
+  // A fresh value each time the platform constructs the object: shows each alarm woke a new one.
+  instance = crypto.randomUUID().slice(0, 8);
+
   facet(i) {
     return this.ctx.facets.get(`facet-${i}`, () => ({
-      class: this.env.LOADER.get("repro", () => ({
+      class: this.env.LOADER.get("facet-code", () => ({
         compatibilityDate: "2026-09-01",
         mainModule: "facet.js",
-        modules: { "facet.js": facetModule },
+        modules: { "facet.js": facetCode },
       })).getDurableObjectClass("Facet", { props: { i } }),
     }));
   }
 
-  // Start `count` facets at once and call each once: "ok" or the rejection's message, per facet.
-  async pingFacets(count) {
-    const outcomes = await Promise.all(
-      Array.from({ length: count }, (_, i) =>
-        this.facet(i).ping().then(() => "ok", (error) => error.message),
-      ),
-    );
-    return { incarnation: this.incarnation, outcomes };
-  }
-
-  // Forget everything and set one alarm. Leave the object alone afterwards so the platform evicts
-  // it: the alarm then constructs a fresh object whose first act is alarm().
-  async arm(facets, rounds, delayMs) {
-    await this.ctx.storage.deleteAll();
-    await this.ctx.storage.put("run", { facets, rounds, delayMs, results: [] });
-    await this.ctx.storage.setAlarm(Date.now() + delayMs);
+  async start() {
+    if (await this.ctx.storage.get("log")) return;
+    await this.ctx.storage.put("log", []);
+    await this.ctx.storage.setAlarm(Date.now() + EVERY_MS);
   }
 
   async alarm() {
-    const run = await this.ctx.storage.get("run");
-    run.results.push({ at: new Date().toISOString(), ...(await this.pingFacets(run.facets)) });
-    await this.ctx.storage.put("run", run);
-    if (run.results.length < run.rounds) await this.ctx.storage.setAlarm(Date.now() + run.delayMs);
+    const results = await Promise.all(
+      Array.from({ length: FACETS }, (_, i) => this.facet(i).ping().then(() => "ok", (error) => error.message)),
+    );
+    const failed = results.filter((r) => r !== "ok");
+    const log = await this.ctx.storage.get("log");
+    log.push(
+      `${new Date().toISOString()} alarm ${log.length + 1} instance ${this.instance}: ` +
+        (failed.length ? `${failed.length}/${FACETS} FAILED: ${failed[0]}` : "ok"),
+    );
+    await this.ctx.storage.put("log", log);
+    if (log.length < ALARMS) await this.ctx.storage.setAlarm(Date.now() + EVERY_MS);
   }
 
-  results() {
-    return this.ctx.storage.get("run");
+  log() {
+    return this.ctx.storage.get("log");
   }
 }
 
-const usage = `GET /arm?id=a&facets=20&rounds=40&delayMs=90000  set the alarms (default: 40, an hour), then leave the object alone
-GET /results?id=a                                 one row per alarm; look for messages that are not "ok"
-GET /control?id=b&facets=20                       the same facets started by a request: all "ok"
-`;
-
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
-    const number = (name, fallback) => Number(url.searchParams.get(name) ?? fallback);
-    const parent = env.PARENT.getByName(url.searchParams.get("id") ?? "default");
-    switch (url.pathname) {
-      case "/arm": {
-        const [facets, rounds, delayMs] = [number("facets", 20), number("rounds", 40), number("delayMs", 90_000)];
-        await parent.arm(facets, rounds, delayMs);
-        return new Response(`armed: ${rounds} alarm(s) ${delayMs} ms apart, ${facets} facets each\n`);
-      }
-      case "/results":
-        return Response.json(await parent.results());
-      case "/control":
-        return Response.json(await parent.pingFacets(number("facets", 20)));
-      default:
-        return new Response(usage, { status: 404 });
-    }
+    const objects = Array.from({ length: OBJECTS }, (_, n) => env.REPRO.getByName(`object-${n + 1}`));
+    await Promise.all(objects.map((object) => object.start()));
+    const logs = await Promise.all(objects.map(async (object, n) => [`object-${n + 1}`, ...(await object.log())].join("\n  ")));
+    return new Response(
+      `${OBJECTS} objects, each woken by an alarm every ${EVERY_MS / 1000} s; every alarm starts ${FACETS} facets from a Worker Loader class and calls ping() on each.\n` +
+        `Expected: every line says "ok". Sometimes: lines where every call FAILED.\n\n${logs.join("\n\n")}\n`,
+    );
   },
 };

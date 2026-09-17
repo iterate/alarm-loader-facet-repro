@@ -4,9 +4,9 @@
   "main": "src/index.js",
   "compatibility_date": "2026-09-01",
   "durable_objects": {
-    "bindings": [{ "name": "PARENT", "class_name": "Parent" }]
+    "bindings": [{ "name": "REPRO", "class_name": "Repro" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Parent"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Repro"] }],
   "worker_loaders": [{ "binding": "LOADER" }],
   "observability": { "enabled": true }
 }
