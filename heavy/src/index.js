@@ -7,7 +7,8 @@
 //     INTO the parent object through it while the parent is still inside alarm(),
 //   - pushes carry a structured batch and return an object, the facet writes SQLite,
 //   - the dynamic worker module is ~250 KB of real code,
-//   - three pushes per alarm, 10 facets per object, 10 objects.
+//   - three pushes per alarm, 10 facets per object, 10 objects, alarms 75 s apart,
+//   - the class minted before ctx.facets.get, from an async code callback that awaits storage.
 // Expected: every alarm line says "ok". Sometimes: alarms where calls fail. The message says
 // which step failed and how (V8's "Unable to deserialize cloned data…" or "internal error").
 import { DurableObject, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
@@ -15,7 +16,7 @@ import { DurableObject, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 const FACETS = 10;
 const OBJECTS = 10;
 const PUSHES = 3;
-const EVERY_MS = 90_000;
+const EVERY_MS = 75_000;
 const ALARMS = 960; // 24 hours
 
 const bulk = Array.from({ length: 4000 }, (_, k) => `export function f${k}(a) { return a + ${k}; }`).join("\n");
@@ -72,16 +73,20 @@ export class Repro extends DurableObject {
 
   facet(i) {
     const name = `facet-${i}`;
-    return this.ctx.facets.get(name, () => ({
-      class: this.env.LOADER.get(`facets-of-${this.ctx.id.name}`, () => ({
+    // Minted BEFORE ctx.facets.get (as os-next does); the code callback is async and awaits a
+    // storage read inside the alarm before the loader gets the modules (as os-next's does).
+    const facetClass = this.env.LOADER.get(`facets-of-${this.ctx.id.name}`, async () => {
+      const code = (await this.ctx.storage.get("facet-code")) ?? facetCode;
+      return {
         compatibilityDate: "2026-09-01",
         compatibilityFlags: ["no_nodejs_compat", "no_nodejs_compat_v2", "allow_irrevocable_stub_storage"],
         mainModule: "facet.js",
-        modules: { "facet.js": facetCode },
+        modules: { "facet.js": code },
         env: { API: this.api },
         globalOutbound: this.api,
-      })).getDurableObjectClass("Facet", { props: { object: this.ctx.id.name, name } }),
-    }));
+      };
+    }).getDurableObjectClass("Facet", { props: { object: this.ctx.id.name, name } });
+    return this.ctx.facets.get(name, () => ({ class: facetClass }));
   }
 
   // The two doors the facet reaches back through, while this object is inside alarm().
