@@ -1,0 +1,13 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "alarm-loader-facet-repro-heavy",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "allow_irrevocable_stub_storage", "global_fetch_strictly_public"],
+  "durable_objects": {
+    "bindings": [{ "name": "REPRO", "class_name": "Repro" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Repro"] }],
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "observability": { "enabled": true }
+}

@@ -48,3 +48,20 @@ frequent: module size, an `env` stub with props, facet storage use, one loader e
 50 facets per alarm, a different account. So leave it running and check back.
 
 It does not reproduce in local `wrangler dev`.
+
+## `heavy/`: the same path with every serialization boundary our production worker crosses
+
+The bare program above fails with `internal error`; our production worker fails on the same path
+with V8's deserialize message. The difference is what the facet does. `heavy/src/index.js` makes
+the facet do what ours does: read `ctx.props` in its constructor and on every call, get a scope
+stub from an `env` entrypoint (a `ctx.exports` WorkerEntrypoint with props, minted in the parent's
+constructor and baked into the loader entry), call back into the parent object through that scope
+while the parent is still inside `alarm()`, take a structured batch and return an object, write
+SQLite, and load a ~250 KB module. Ten objects, ten facets each, three pushes per alarm.
+
+```sh
+npx wrangler deploy -c heavy/wrangler.jsonc
+curl https://alarm-loader-facet-repro-heavy.<subdomain>.workers.dev/    # start; visit again to read
+```
+
+Failure lines name the step that failed, e.g. `[ctx.props] Unable to deserialize cloned data…`.
