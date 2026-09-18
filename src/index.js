@@ -1,6 +1,6 @@
 // Expected: every alarm line says "ok". Sometimes: alarms where every facet call fails.
 //
-// Each object is woken by its own alarm every 60 s. Inside alarm() it starts 20 facets whose class
+// Thirty objects, six in each of five regions, are each woken by their own alarm every 60 s. Inside alarm() it starts 20 facets whose class
 // comes from a Worker Loader (dynamic worker) and calls ping() on each: ten from a plain dynamic
 // worker, ten from one whose env carries a stub of this worker's own entrypoint (as our production
 // worker does). Expected: 20 × "pong", every time. Observed: alarms where all 20 calls reject —
@@ -9,7 +9,8 @@
 // next alarms may fail the same way. Visit the worker's URL once to start; visit again for the log.
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 
-const OBJECTS = 30;
+const REGIONS = ["wnam", "enam", "weur", "eeur", "apac"]; // Durable Object location hints
+const OBJECTS_PER_REGION = 6;
 const EVERY_MS = 60_000; // long enough for the idle object to be evicted between alarms
 const ALARMS = 1440; // 24 hours, then it stops
 
@@ -81,11 +82,14 @@ export class Repro extends DurableObject {
 
 export default {
   async fetch(request, env) {
-    const objects = Array.from({ length: OBJECTS }, (_, n) => env.REPRO.getByName(`object-${n + 1}`));
+    // Objects spread over regions (a location hint places a NEW object there), so one run covers
+    // many machines: the failure is a per-machine window.
+    const names = REGIONS.flatMap((region) => Array.from({ length: OBJECTS_PER_REGION }, (_, n) => [`${region}-${n + 1}`, region]));
+    const objects = names.map(([name, region]) => env.REPRO.get(env.REPRO.idFromName(name), { locationHint: region }));
     await Promise.all(objects.map((object) => object.start()));
-    const logs = await Promise.all(objects.map(async (object, n) => [`object-${n + 1}`, ...(await object.log())].join("\n  ")));
+    const logs = await Promise.all(objects.map(async (object, n) => [names[n][0], ...(await object.log())].join("\n  ")));
     return new Response(
-      `${OBJECTS} objects, each woken by an alarm every ${EVERY_MS / 1000} s; every alarm starts 10 plain facets and 10 env facets from Worker Loader classes and calls ping() on each.\n` +
+      `${names.length} objects in ${REGIONS.length} regions, each woken by an alarm every ${EVERY_MS / 1000} s; every alarm starts 10 plain facets and 10 env facets from Worker Loader classes and calls ping() on each.\n` +
         `Expected: every line says "plain ok | env ok". Sometimes: lines where every call FAILED — "internal error" on the plain ten, "Unable to deserialize cloned data" on the env ten.\n\n${logs.join("\n\n")}\n`,
     );
   },
