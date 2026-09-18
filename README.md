@@ -13,11 +13,19 @@ Expected, every alarm:
 2026-09-18T09:01:00.812Z alarm 1 instance 6d21a6f3: plain ok | env ok
 ```
 
-Sometimes:
+Sometimes (real lines, object `weur-2`, 2026-09-18):
 
 ```
-2026-09-18T01:42:47.796Z alarm 226 instance 15d1f765: plain 10/10 FAILED: internal error; reference = u8vijhqlire5ajelu9pud11c | env 10/10 FAILED: Unable to deserialize cloned data due to invalid or unsupported version.
+2026-09-18T16:01:29.422Z alarm 124 instance 1424694c: plain ok | env ok
+2026-09-18T16:04:03.573Z alarm 125 instance d65d1222: plain 10/10 FAILED: internal error; reference = 4f4r7cgj5qomq11vmhb2gc1f | env 10/10 FAILED: Unable to deserialize cloned data due to invalid or unsupported version.
+2026-09-18T16:05:03.584Z alarm 126 instance b6da9452: plain 10/10 FAILED: internal error; reference = 9k40hh2hja7falg3ai80asal | env 10/10 FAILED: Unable to deserialize cloned data due to invalid or unsupported version.
+2026-09-18T16:06:03.591Z alarm 127 instance 41e08174: plain 10/10 FAILED: internal error; reference = b3032qc6mup298jn6er90rlh | env 10/10 FAILED: Unable to deserialize cloned data due to invalid or unsupported version.
+2026-09-18T16:07:03.600Z alarm 128 instance d460f073: plain 10/10 FAILED: internal error; reference = gr2lk2omb10d395npi3jqtc5 | env 10/10 FAILED: Unable to deserialize cloned data due to invalid or unsupported version.
 ```
+
+Note the gap: alarm 125 came 2 min 34 s after alarm 124 instead of 60 s, and every alarm from then
+on failed, each in a fresh instance. The other 29 objects, and the 30 on a second account, were fine
+at the same minutes.
 
 Every call in the alarm rejects at once. The plain facets reject with `internal error` (a new
 reference id per call); the facets whose dynamic worker has an `env` stub reject with V8's
