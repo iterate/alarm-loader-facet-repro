@@ -23,9 +23,9 @@ Sometimes (real lines, object `weur-2`, 2026-09-18):
 2026-09-18T16:07:03.600Z alarm 128 instance d460f073: plain 10/10 FAILED: internal error; reference = gr2lk2omb10d395npi3jqtc5 | env 10/10 FAILED: Unable to deserialize cloned data due to invalid or unsupported version.
 ```
 
-Note the gap: alarm 125 came 2 min 34 s after alarm 124 instead of 60 s, and every alarm from then
-on failed, each in a fresh instance. The other 29 objects, and the 30 on a second account, were fine
-at the same minutes.
+Note the gap: alarm 125 came 2 min 34 s after alarm 124 instead of 60 s. Four alarms in a row
+failed, each in a fresh instance; from alarm 129 (16:08:03) on the object was fine again. The other
+29 objects, and the 30 on a second account, were fine at the same minutes.
 
 Every call in the alarm rejects at once. The plain facets reject with `internal error` (a new
 reference id per call); the facets whose dynamic worker has an `env` stub reject with V8's
