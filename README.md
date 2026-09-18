@@ -39,6 +39,18 @@ curl https://alarm-loader-facet-repro.<subdomain>.workers.dev/    # starts the f
 Come back later and open the same URL: it prints one line per alarm per object. It runs for 24
 hours on its own and then stops.
 
+## Observed over 5.5 hours (2026-09-17 19:50 to 2026-09-18 01:42 UTC, one account)
+
+| program | objects | alarms | failing alarms | when |
+| --- | --- | --- | --- | --- |
+| bare (this page) | 5 | 1,171 | 21, all `internal error; reference = …`, all 20 calls each | windows at 20:17–20:23, 20:20, 20:48, 21:29, 21:58: several objects in the same second, then clean again |
+| `heavy/` | 10 | 2,399 | 3, all `Unable to deserialize cloned data…`, all 30 calls each | one window, 20:36:15, three objects in the same second |
+| nine-variant leave-one-out of heavy's ingredients inside one alarm (not in this repo) | 10 | 2,304 (36 facet starts each) | 0 | — |
+
+Objects that fail together fail in the same second and recover on their next alarm (one object stayed
+broken for two alarms, once for four); the windows on the bare program's objects came back about every
+30 to 40 minutes. Whatever is wrong is below the object: the process, or the loader's cached entry.
+
 ## How often
 
 The failure comes and goes on the platform. In our runs it appeared on the second alarm once
