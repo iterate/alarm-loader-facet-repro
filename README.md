@@ -2,7 +2,7 @@
 
 **When you run this you expect every facet call to succeed. Sometimes every call in an alarm fails.**
 
-`src/index.js` is the whole program. Ten Durable Objects each wake on their own alarm every 60 s.
+`src/index.js` is the whole program. Thirty Durable Objects each wake on their own alarm every 60 s.
 Inside `alarm()` each one starts 20 facets whose class comes from a Worker Loader (dynamic worker)
 and calls `ping()` on each: ten from a plain dynamic worker, ten from one whose `env` carries a stub
 of the worker's own `WorkerEntrypoint` (with props), the way our production worker's facets do.
@@ -33,7 +33,7 @@ object, so the facets are started inside an alarm that is the first thing the ob
 ```sh
 npm install
 npx wrangler deploy      # prints https://alarm-loader-facet-repro.<subdomain>.workers.dev
-curl https://alarm-loader-facet-repro.<subdomain>.workers.dev/    # starts the ten objects
+curl https://alarm-loader-facet-repro.<subdomain>.workers.dev/    # starts the thirty objects
 ```
 
 Come back later and open the same URL: one line per alarm per object. It runs for 24 hours on its

@@ -9,7 +9,7 @@
 // next alarms may fail the same way. Visit the worker's URL once to start; visit again for the log.
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 
-const OBJECTS = 10;
+const OBJECTS = 30;
 const EVERY_MS = 60_000; // long enough for the idle object to be evicted between alarms
 const ALARMS = 1440; // 24 hours, then it stops
 
