@@ -1,33 +1,51 @@
 // Expected: every alarm line says "ok". Sometimes: alarms where every facet call fails.
 //
-// Each object is woken by its own alarm every 90 s. Inside alarm() it starts 20 facets whose class
-// comes from a Worker Loader (dynamic worker) and calls ping() on each. Expected: "pong" from all
-// 20, every time. Observed on the platform: alarms where all 20 calls reject, on several alarms in
-// a row. Visit the worker's URL once to start; visit again to read the log.
-import { DurableObject } from "cloudflare:workers";
+// Each object is woken by its own alarm every 60 s. Inside alarm() it starts 20 facets whose class
+// comes from a Worker Loader (dynamic worker) and calls ping() on each: ten from a plain dynamic
+// worker, ten from one whose env carries a stub of this worker's own entrypoint (as our production
+// worker does). Expected: 20 × "pong", every time. Observed: alarms where all 20 calls reject —
+// the plain ten with "internal error; reference = …", the env ten with V8's
+// "Unable to deserialize cloned data due to invalid or unsupported version." — and the object's
+// next alarms may fail the same way. Visit the worker's URL once to start; visit again for the log.
+import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 
-const facetCode = `
+const OBJECTS = 10;
+const EVERY_MS = 60_000; // long enough for the idle object to be evicted between alarms
+const ALARMS = 1440; // 24 hours, then it stops
+
+// The dynamic worker: one class, one method. The env variant reads ctx.props and calls env.API.
+const plainFacet = `
 import { DurableObject } from "cloudflare:workers";
 export class Facet extends DurableObject {
   ping() { return "pong"; }
 }`;
+const envFacet = `
+import { DurableObject } from "cloudflare:workers";
+export class Facet extends DurableObject {
+  async ping() { await this.env.API.ping(); return "pong " + this.ctx.props.name; }
+}`;
 
-const FACETS = 20;
-const OBJECTS = 5;
-const EVERY_MS = 90_000; // long enough for the idle object to be evicted between alarms
-const ALARMS = 960; // 24 hours, then it stops
+// What the env variant's dynamic worker gets as env.API: this worker's own entrypoint, with props.
+export class Api extends WorkerEntrypoint {
+  ping() {
+    return "api";
+  }
+}
 
 export class Repro extends DurableObject {
   // A fresh value each time the platform constructs the object: shows each alarm woke a new one.
   instance = crypto.randomUUID().slice(0, 8);
+  api = this.ctx.exports.Api({ props: { object: this.ctx.id.name } });
 
-  facet(i) {
-    return this.ctx.facets.get(`facet-${i}`, () => ({
-      class: this.env.LOADER.get("facet-code", () => ({
+  facet(kind, i) {
+    const name = `${kind}-${i}`;
+    return this.ctx.facets.get(name, () => ({
+      class: this.env.LOADER.get(`${kind}-code`, () => ({
         compatibilityDate: "2026-09-01",
         mainModule: "facet.js",
-        modules: { "facet.js": facetCode },
-      })).getDurableObjectClass("Facet", { props: { i } }),
+        modules: { "facet.js": kind === "env" ? envFacet : plainFacet },
+        ...(kind === "env" ? { env: { API: this.api }, globalOutbound: this.api } : {}),
+      })).getDurableObjectClass("Facet", { props: { name } }),
     }));
   }
 
@@ -38,15 +56,20 @@ export class Repro extends DurableObject {
   }
 
   async alarm() {
-    const results = await Promise.all(
-      Array.from({ length: FACETS }, (_, i) => this.facet(i).ping().then(() => "ok", (error) => error.message)),
+    const results = {};
+    await Promise.all(
+      ["plain", "env"].map(async (kind) => {
+        results[kind] = await Promise.all(
+          Array.from({ length: 10 }, (_, i) => this.facet(kind, i).ping().then(() => "ok", (error) => error.message)),
+        );
+      }),
     );
-    const failed = results.filter((r) => r !== "ok");
+    const cell = (kind) => {
+      const failed = results[kind].filter((r) => r !== "ok");
+      return failed.length ? `${kind} ${failed.length}/10 FAILED: ${failed[0]}` : `${kind} ok`;
+    };
     const log = await this.ctx.storage.get("log");
-    log.push(
-      `${new Date().toISOString()} alarm ${log.length + 1} instance ${this.instance}: ` +
-        (failed.length ? `${failed.length}/${FACETS} FAILED: ${failed[0]}` : "ok"),
-    );
+    log.push(`${new Date().toISOString()} alarm ${log.length + 1} instance ${this.instance}: ${cell("plain")} | ${cell("env")}`);
     await this.ctx.storage.put("log", log);
     if (log.length < ALARMS) await this.ctx.storage.setAlarm(Date.now() + EVERY_MS);
   }
@@ -62,8 +85,8 @@ export default {
     await Promise.all(objects.map((object) => object.start()));
     const logs = await Promise.all(objects.map(async (object, n) => [`object-${n + 1}`, ...(await object.log())].join("\n  ")));
     return new Response(
-      `${OBJECTS} objects, each woken by an alarm every ${EVERY_MS / 1000} s; every alarm starts ${FACETS} facets from a Worker Loader class and calls ping() on each.\n` +
-        `Expected: every line says "ok". Sometimes: lines where every call FAILED.\n\n${logs.join("\n\n")}\n`,
+      `${OBJECTS} objects, each woken by an alarm every ${EVERY_MS / 1000} s; every alarm starts 10 plain facets and 10 env facets from Worker Loader classes and calls ping() on each.\n` +
+        `Expected: every line says "plain ok | env ok". Sometimes: lines where every call FAILED — "internal error" on the plain ten, "Unable to deserialize cloned data" on the env ten.\n\n${logs.join("\n\n")}\n`,
     );
   },
 };
