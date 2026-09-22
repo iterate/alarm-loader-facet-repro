@@ -27,6 +27,12 @@ Note the gap: alarm 125 came 2 min 34 s after alarm 124 instead of 60 s. Four al
 failed, each in a fresh instance; from alarm 129 (16:08:03) on the object was fine again. The other
 29 objects, and the 30 on a second account, were fine at the same minutes.
 
+Caught a second time on a fresh deployment (2026-09-22, object `weur-3`, same account): clean
+through alarm 80, then alarms 81 to 97 all failed (12:48:59 to 13:05:00 UTC, 17 in a row, both
+messages on every line, no timing gap this time: the alarms stayed exactly 60 s apart), clean again
+from alarm 98 (13:06:00). Again one object out of sixty across two accounts; again the streak ended
+on its own. Started 11:28 UTC, so 80 minutes to the first failing line.
+
 Every call in the alarm rejects at once. The plain facets reject with `internal error` (a new
 reference id per call); the facets whose dynamic worker has an `env` stub reject with V8's
 `Unable to deserialize cloned data due to invalid or unsupported version.` — the same failure at
